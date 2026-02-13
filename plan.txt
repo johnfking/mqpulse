@@ -1,0 +1,141 @@
+Context
+The MacroQuest Actor system provides powerful inter-process communication between Lua scripts across multiple EQ clients, but the raw actors API is low-level. Every script that uses it today reimplements the same patterns from scratch:
+
+Dispatch boilerplate: lootnscoot/modules/actor.lua (573 lines) is one giant if action == 'X' elseif action == 'Y' chain
+Hand-rolled presence/heartbeat: EmuBot/modules/connected_players.lua (276 lines) and rgmercs/utils/comms.lua independently implement heartbeat + stale timeout + peer cleanup
+Manual RPC correlation: EZInventory/inventory_actor.lua (1102 lines) hand-builds request IDs with string.format("%s_%s_%d", ...) and manually tracks callbacks in stats_callbacks
+Repeated server filtering: Nearly every handler starts with if server ~= settings.EqServer then return end
+Deferred task queues: EZInventory maintains M.deferred_tasks because mq.delay() can't be called in handlers
+
+The mqpulse library will be a pure Lua wrapper around the existing actors module that eliminates this boilerplate and provides clean patterns for the three primary use cases: multi-box coordination, shared state/data sync, and service-oriented scripts.
+Module Structure
+lua/mqpulse/
+    init.lua        -- Entry point, wires submodules, exposes unified API
+    core.lua        -- Actor registration, envelope protocol, dispatch routing
+    pubsub.lua      -- Pub/Sub (topics, subscriptions, broadcasting)
+    rpc.lua         -- RPC (call remote functions, get results with timeouts)
+    state.lua       -- Shared state (replicated key-value store across clients)
+    presence.lua    -- Peer presence/heartbeat (who is online)
+    service.lua     -- Service registry (advertise, discover, call services)
+    errors.lua      -- Error codes and status mapping
+Implementation Phases
+Phase 1: Foundation — errors.lua, core.lua, init.lua
+errors.lua — Error constants mapping from actors.ResponseStatus:
+lualocal Errors = {
+    TIMEOUT = 'timeout', NO_CONNECTION = 'no_connection',
+    ROUTING_FAILED = 'routing_failed', AMBIGUOUS = 'ambiguous_recipient',
+    CONNECTION_CLOSED = 'connection_closed', HANDLER_ERROR = 'handler_error',
+    NOT_FOUND = 'service_not_found',
+}
+core.lua — The foundation everything depends on:
+
+Registers a single named actor mailbox (the namespace) and demuxes internally via envelope _type field
+Wraps all outgoing messages in an envelope: { _mqp=1, _type='pub'|'rpc_req'|..., _ns=namespace, _from=charname, _server=server, data={...} }
+Dispatches incoming envelopes to the correct submodule handler
+Auto-filters messages from other servers (configurable)
+Messages without _mqp marker go to an optional raw handler for interop with non-library scripts
+All handlers wrapped in pcall — never crashes the user's script
+
+init.lua — Entry point:
+lualocal mqp = require('mqpulse')
+local node = mqp.setup('my_namespace', { server_filter = true })
+-- main loop calls node:process()
+-- cleanup calls node:shutdown()
+Phase 2: Pub/Sub — pubsub.lua
+Publish/subscribe with hierarchical dot-separated topics. Subscribing to group.status also receives group.status.hp.
+luanode:publish('group.status', { name='Tank', hp=85, zone='poknowledge' })
+node:publish('command.follow', { target='Tank' }, { to='Cleric' })  -- targeted
+
+local sub_id = node:subscribe('group.status', function(data, sender)
+    printf('%s at %d%% HP', data.name, data.hp)
+end)
+node:unsubscribe(sub_id)
+Phase 3: RPC — rpc.lua
+Remote procedure calls with automatic request ID correlation, timeout management, and error mapping.
+luanode:handle('get_buffs', function(args, caller)
+    return { 'Aegolism', 'Symbol of Naltron' }  -- return value sent back
+end)
+
+node:call('Cleric', 'get_buffs', {}, function(err, result)
+    if err then printf('Failed: %s', err) return end
+    -- use result
+end, { timeout = 5 })
+
+Request IDs: charname_counter (monotonic counter avoids os.time() collisions)
+process() sweeps expired callbacks and delivers ("timeout", nil)
+Remote handler errors caught with pcall, forwarded as "handler_error: msg"
+
+Phase 4: Presence — presence.lua
+Built-in automatic heartbeat/peer tracking. Replaces the 140+ line pattern in connected_players.lua.
+lualocal peers = node:peers()                    -- list online peers
+local online = node:is_online('Cleric')       -- check specific peer
+node:on_peer_join(function(peer) ... end)     -- join notification
+node:on_peer_leave(function(peer) ... end)    -- leave notification
+
+Heartbeat via internal pub/sub topic _sys.heartbeat
+process() broadcasts heartbeats and sweeps stale peers
+Configurable intervals (default: heartbeat=5s, timeout=15s)
+
+Phase 5: Shared State — state.lua
+Replicated key-value store. Each node owns its own keys (keyed by character name). Changes broadcast as deltas.
+lualocal group = node:shared_state('status')
+group:set('hp', 85)
+group:merge({ hp=85, mana=60, zone='poknowledge' })  -- batch update
+
+local cleric_hp = group:get('Cleric', 'hp')
+local all_hp = group:get_all('hp')  -- { Cleric=85, Tank=42, ... }
+
+group:on_change('hp', function(peer, new_val, old_val) ... end)
+group:on_join(function(peer) ... end)
+group:on_leave(function(peer) ... end)
+
+Delta broadcasts on set()/merge(), periodic full-state sync for late joiners
+Built on pub/sub + presence
+
+Phase 6: Service Registry — service.lua
+Advertise named services, discover providers, call service methods.
+luanode:provide('healing', { class='CLR', level=65, buffs={'Aegolism'} })
+node:handle('heal', function(args, caller) ... end)
+
+node:find_services('healing', function(services) ... end)
+node:call_service('healing', 'heal', { target='Tank' }, function(err, result) ... end)
+Key Design Decisions
+
+Single mailbox, internal demux: MQ actors allow one handler per mailbox name. The library funnels everything through one mailbox and routes by envelope _type field. This avoids the dual-mailbox pattern in EZInventory.
+Deferred execution for game actions: Since mq.delay() cannot be called in message handlers, any RPC handler that needs to do game actions (targeting, casting) must be deferred. We'll provide node:defer(fn) which queues work to execute during process() — exactly the pattern EZInventory uses with M.deferred_tasks.
+Error-as-values, not exceptions: Callbacks receive (err, result). err is nil on success. Follows Lua convention.
+Graceful degradation: If actors module fails to load (launcher not running), setup() returns a valid Node with no-op methods that log warnings.
+Interop with raw actors: Messages without the _mqp envelope marker are passed to node:on_raw(handler) so scripts can coexist with non-library actors.
+
+Files to Create
+FilePurposeDependencieslua/mqpulse/errors.luaError constantsnonelua/mqpulse/core.luaEnvelope protocol, dispatch, actor registrationerrorslua/mqpulse/pubsub.luaTopic pub/subcorelua/mqpulse/rpc.luaRPC with correlation/timeoutcore, errorslua/mqpulse/presence.luaHeartbeat/peer trackingcore, pubsublua/mqpulse/state.luaShared state replicationcore, pubsub, presencelua/mqpulse/service.luaService registrycore, rpc, presencelua/mqpulse/init.luaPublic API surfaceall above
+Reference Files (existing codebase)
+
+lua/EZInventory/inventory_actor.lua — dual mailbox, deferred tasks, request ID tracking pattern
+lua/EmuBot/modules/connected_players.lua — heartbeat/presence pattern
+lua/lootnscoot/modules/actor.lua — massive dispatch chain, server filtering pattern
+MacroQuest Lua Actor docs: https://docs.macroquest.org/lua/actors/
+
+Verification
+
+Create a simple test script that uses mqpulse to:
+
+Set up a node and verify process() runs without error
+Publish a topic and subscribe to receive it on the same node
+Register an RPC handler and call it locally
+Create a shared state and verify set()/get() work
+
+
+Run on two MQ clients to test cross-client:
+
+Peer presence detection (join/leave)
+Pub/sub across clients
+RPC calls between characters
+Shared state synchronization
+
+
+Test error cases:
+
+Call to offline character (should timeout)
+Handler that throws (should return handler_error)
+Missing actors module (should degrade gracefully)
