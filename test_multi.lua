@@ -164,6 +164,7 @@ end)
 local last_announce = 0
 local last_state_update = 0
 local last_peer_check = 0
+local last_service_discovery = 0
 local last_stats = 0
 local last_advanced_tests = 0
 local rpc_test_done = {}
@@ -240,15 +241,22 @@ while true do
     end
 
     -- Test service discovery every 20 seconds
-    if now - last_peer_check >= 20 and not service_test_done then
+    if now - last_service_discovery >= 20 and not service_test_done then
+        last_service_discovery = now
         printf('\n\ay=== Service Discovery Test ===\ax')
+        printf('\ao[TEST]\ax Finding services...')
         node:find_services('test_utility', function(services)
             printf('Found %d service provider(s):', #services)
             for _, svc in ipairs(services) do
                 printf('  - %s (class: %s, level: %d)',
                     svc.peer, svc.info.class or '?', svc.info.level or 0)
             end
-            service_test_done = true
+            if #services > 0 then
+                service_test_done = true
+                printf('\ag[OK]\ax Service discovery completed')
+            else
+                printf('\ay[WARN]\ax No services found, will retry')
+            end
         end)
     end
 
