@@ -13,14 +13,14 @@ Single-client automated tests. Runs a suite of tests on one EQ client.
 ```
 
 **What it tests:**
-- ✓ Pub/Sub messaging
-- ✓ Hierarchical topic matching
-- ✓ RPC calls and responses
-- ✓ RPC timeouts
-- ✓ Shared state get/set
-- ✓ Shared state merge
-- ✓ Deferred execution
-- ✓ Service registration and discovery
+- Pub/Sub messaging
+- Hierarchical topic matching
+- RPC calls and responses
+- RPC timeouts
+- Shared state get/set
+- Shared state merge
+- Deferred execution
+- Service registration and discovery
 
 **Expected output:** Pass/fail results for each test, final summary
 
@@ -35,11 +35,11 @@ Multi-client integration tests. Must be run on 2+ EQ clients simultaneously.
 3. Watch the output on all clients
 
 **What it tests:**
-- 👥 Peer presence detection (join/leave events)
-- 📡 Cross-client pub/sub messaging
-- 🔌 Cross-client RPC calls
-- 🔄 Shared state synchronization across clients
-- 🎯 Service discovery across clients
+- Peer presence detection (join/leave events)
+- Cross-client pub/sub messaging
+- Cross-client RPC calls
+- Shared state synchronization across clients
+- Service discovery across clients
 
 **Expected behavior:**
 - Each client should detect other clients coming online

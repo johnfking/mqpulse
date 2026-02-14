@@ -38,11 +38,11 @@ printf('Waiting for peers to come online...')
 
 node:on_peer_join(function(peer)
     stats.peers_seen[peer] = true
-    printf('\ag✓\ax Peer joined: %s', peer)
+    printf('\ag[OK]\ax Peer joined: %s', peer)
 end)
 
 node:on_peer_leave(function(peer)
-    printf('\ar✗\ax Peer left: %s', peer)
+    printf('\ar[X]\ax Peer left: %s', peer)
 end)
 
 -- Test 2: Pub/Sub across clients
@@ -51,14 +51,14 @@ printf('\n\ay=== Cross-Client Pub/Sub ===\ax')
 node:subscribe('multitest.announce', function(data, sender)
     if sender ~= my_name then
         stats.messages_received = stats.messages_received + 1
-        printf('\ag✓\ax Received announcement from %s: %s', sender, data.msg or '')
+        printf('\ag[OK]\ax Received announcement from %s: %s', sender, data.msg or '')
     end
 end)
 
 -- Subscribe to commands
 node:subscribe('multitest.command', function(data, sender)
     if data.action == 'wave' then
-        printf('\ag✓\ax %s waves at you!', sender)
+        printf('\ag[OK]\ax %s waves at you!', sender)
     end
 end)
 
@@ -67,7 +67,7 @@ printf('\n\ay=== Cross-Client RPC ===\ax')
 
 node:handle('get_class', function(args, caller)
     stats.rpc_calls_received = stats.rpc_calls_received + 1
-    printf('\ag✓\ax RPC call from %s', caller)
+    printf('\ag[OK]\ax RPC call from %s', caller)
     return {
         name = my_name,
         class = mq.TLO.Me.Class.ShortName(),
@@ -88,17 +88,17 @@ status:on_change('hp', function(peer, new_val, old_val)
     if peer ~= my_name then
         stats.state_updates = stats.state_updates + 1
         if new_val < 30 then
-            printf('\ao⚠\ax  %s HP low: %d%%', peer, new_val)
+            printf('\ao[WARN]\ax  %s HP low: %d%%', peer, new_val)
         end
     end
 end)
 
 status:on_join(function(peer)
-    printf('\ag✓\ax %s joined shared state', peer)
+    printf('\ag[OK]\ax %s joined shared state', peer)
 end)
 
 status:on_leave(function(peer)
-    printf('\ar✗\ax %s left shared state', peer)
+    printf('\ar[X]\ax %s left shared state', peer)
 end)
 
 -- Test 5: Service Discovery
@@ -111,7 +111,7 @@ node:provide('test_utility', {
 })
 
 node:handle('do_utility', function(args, caller)
-    printf('\ag✓\ax Service called by %s', caller)
+    printf('\ag[OK]\ax Service called by %s', caller)
     return { status = 'ok', msg = 'Utility executed' }
 end)
 
@@ -163,9 +163,9 @@ while true do
                 if not rpc_test_done[peer] then
                     node:call(peer, 'get_class', {}, function(err, result)
                         if err then
-                            printf('\ar✗\ax RPC to %s failed: %s', peer, err)
+                            printf('\ar[X]\ax RPC to %s failed: %s', peer, err)
                         else
-                            printf('\ag✓\ax RPC response from %s: %s L%d %s',
+                            printf('\ag[OK]\ax RPC response from %s: %s L%d %s',
                                 peer, result.class, result.level, result.name)
                             rpc_test_done[peer] = true
                         end

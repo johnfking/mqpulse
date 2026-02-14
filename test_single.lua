@@ -196,9 +196,9 @@ printf('Tests passed: \ag%d\ax', tests_passed)
 printf('Tests failed: \ar%d\ax', tests_failed)
 
 if tests_failed == 0 then
-    printf('\ag✓ All tests passed!\ax')
+    printf('\ag[PASS] All tests passed!\ax')
 else
-    printf('\ar✗ Some tests failed\ax')
+    printf('\ar[FAIL] Some tests failed\ax')
 end
 
 node:shutdown()
