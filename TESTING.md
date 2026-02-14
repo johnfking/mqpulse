@@ -36,10 +36,14 @@ Multi-client integration tests. Must be run on 2+ EQ clients simultaneously.
 
 **What it tests:**
 - Peer presence detection (join/leave events)
-- Cross-client pub/sub messaging
-- Cross-client RPC calls
-- Shared state synchronization across clients
-- Service discovery across clients
+- Cross-client pub/sub messaging (broadcast and targeted)
+- Cross-client RPC calls with error handling
+- Shared state synchronization (set, merge, get, get_all, on_change)
+- Service discovery and service calls
+- Deferred execution across clients
+- Subscription management (subscribe/unsubscribe)
+- Service lifecycle (provide/unprovide)
+- Raw message handling (on_raw)
 
 **Expected behavior:**
 - Each client should detect other clients coming online
