@@ -23,7 +23,6 @@ This library tries to provide:
 - 🔄 **Shared State**: Implements a replicated key-value store across clients
 - 🎯 **Services**: Includes a service discovery and registry pattern
 - 🛡️ **Error handling**: I've wrapped handlers in `pcall` to try to avoid crashes
-- 🔧 **Graceful degradation**: Attempts to work as a no-op when the MQ launcher isn't running
 
 ## Installation
 
