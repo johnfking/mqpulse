@@ -212,18 +212,28 @@ while true do
         local peers = node:peers()
 
         if #peers > 0 then
-            printf('\n\ay=== RPC Test: Calling peers ===\ax')
+            local pending_rpc_tests = 0
             for _, peer in ipairs(peers) do
                 if not rpc_test_done[peer] then
-                    node:call(peer, 'get_class', {}, function(err, result)
-                        if err then
-                            printf('\ar[X]\ax RPC to %s failed: %s', peer, err)
-                        else
-                            printf('\ag[OK]\ax RPC response from %s: %s L%d %s',
-                                peer, result.class, result.level, result.name)
-                            rpc_test_done[peer] = true
-                        end
-                    end, { timeout = 5 })
+                    pending_rpc_tests = pending_rpc_tests + 1
+                end
+            end
+
+            if pending_rpc_tests > 0 then
+                printf('\n\ay=== RPC Test: Calling %d peer(s) ===\ax', pending_rpc_tests)
+                for _, peer in ipairs(peers) do
+                    if not rpc_test_done[peer] then
+                        printf('\ao[TEST]\ax RPC get_class -> %s', peer)
+                        node:call(peer, 'get_class', {}, function(err, result)
+                            if err then
+                                printf('\ar[X]\ax RPC to %s failed: %s', peer, err)
+                            else
+                                printf('\ag[OK]\ax RPC from %s: %s L%d',
+                                    peer, result.class, result.level)
+                                rpc_test_done[peer] = true
+                            end
+                        end, { timeout = 5 })
+                    end
                 end
             end
         end
@@ -248,18 +258,21 @@ while true do
         local peers = node:peers()
 
         if #peers > 0 then
+            printf('\n\ay=== Advanced Tests Round (every 25s) ===\ax')
             local test_peer = peers[1]
+            local tests_run_this_round = 0
 
             -- Test: Targeted pub/sub
             if not targeted_pub_done[test_peer] then
-                printf('\n\ay=== Testing Targeted Pub/Sub to %s ===\ax', test_peer)
+                printf('\n\ao[TEST]\ax Targeted Pub/Sub -> %s', test_peer)
                 node:publish('multitest.targeted', { msg = 'Direct message!' }, { to = test_peer })
                 targeted_pub_done[test_peer] = true
+                tests_run_this_round = tests_run_this_round + 1
             end
 
             -- Test: call_service
             if not service_call_done[test_peer] then
-                printf('\n\ay=== Testing call_service() to %s ===\ax', test_peer)
+                printf('\n\ao[TEST]\ax call_service() -> %s', test_peer)
                 node:call_service('test_utility', 'do_utility', { action = 'test' }, function(err, result)
                     if err then
                         printf('\ar[X]\ax call_service failed: %s', err)
@@ -268,69 +281,81 @@ while true do
                     end
                 end)
                 service_call_done[test_peer] = true
+                tests_run_this_round = tests_run_this_round + 1
             end
 
             -- Test: Deferred execution
             if not defer_test_done[test_peer] then
-                printf('\n\ay=== Testing Deferred Execution with %s ===\ax', test_peer)
+                printf('\n\ao[TEST]\ax Deferred Execution -> %s', test_peer)
                 node:call(test_peer, 'test_defer', {}, function(err, result)
                     if not err then
                         printf('\ag[OK]\ax Defer test initiated on %s', test_peer)
                     end
                 end)
                 defer_test_done[test_peer] = true
+                tests_run_this_round = tests_run_this_round + 1
             end
 
             -- Test: RPC error handling
             if not error_test_done[test_peer] then
-                printf('\n\ay=== Testing RPC Error Handling with %s ===\ax', test_peer)
+                printf('\n\ao[TEST]\ax RPC Error Handling -> %s', test_peer)
                 node:call(test_peer, 'test_error', { should_error = true }, function(err, result)
                     if err and string.find(err, 'handler_error') then
                         stats.rpc_errors_caught = stats.rpc_errors_caught + 1
-                        printf('\ag[OK]\ax RPC error caught correctly: %s', err)
+                        printf('\ag[OK]\ax RPC error caught correctly')
                     else
                         printf('\ar[X]\ax Expected handler_error but got: %s', err or 'success')
                     end
                 end)
                 error_test_done[test_peer] = true
+                tests_run_this_round = tests_run_this_round + 1
             end
 
             -- Test: State get_all()
             if not get_all_test_done then
-                printf('\n\ay=== Testing State get_all() ===\ax')
+                printf('\n\ao[TEST]\ax State get_all()')
                 local all_hp = status:get_all('hp')
                 local count = 0
                 for peer, hp in pairs(all_hp) do
                     count = count + 1
-                    printf('  - %s: %d%% HP', peer, hp or 0)
                 end
-                printf('\ag[OK]\ax get_all() returned %d entries', count)
+                printf('\ag[OK]\ax get_all() returned %d peer entries', count)
                 get_all_test_done = true
+                tests_run_this_round = tests_run_this_round + 1
             end
 
             -- Test: unsubscribe (run once)
             if not unsubscribe_test_done and not test_sub_id then
-                printf('\n\ay=== Testing unsubscribe() ===\ax')
+                printf('\n\ao[TEST]\ax unsubscribe()')
                 test_sub_id = node:subscribe('test.unsub', function(data)
-                    printf('This should not print after unsubscribe')
+                    printf('ERROR: This should not print after unsubscribe')
                 end)
-                -- Immediately unsubscribe
                 node:unsubscribe(test_sub_id)
-                -- Try to trigger it
                 node:publish('test.unsub', { msg = 'test' })
                 printf('\ag[OK]\ax Subscription created and removed')
                 unsubscribe_test_done = true
+                tests_run_this_round = tests_run_this_round + 1
             end
 
             -- Test: unprovide (run once after 40 seconds)
             if not unprovide_test_done and now >= 40 then
-                printf('\n\ay=== Testing unprovide() ===\ax')
+                printf('\n\ao[TEST]\ax unprovide()')
                 node:provide('temp_service', { temp = true })
                 mq.delay(100)
                 node:unprovide('temp_service')
                 printf('\ag[OK]\ax Service provided and removed')
                 unprovide_test_done = true
+                tests_run_this_round = tests_run_this_round + 1
             end
+
+            if tests_run_this_round == 0 then
+                printf('  (All advanced tests completed)')
+            else
+                printf('  Executed %d test(s) this round', tests_run_this_round)
+            end
+        else
+            printf('\n\ay=== Advanced Tests ===\ax')
+            printf('  Waiting for peers to come online...')
         end
     end
 
@@ -354,6 +379,17 @@ while true do
         printf('  State updates seen: %d', stats.state_updates)
         printf('  RPC errors caught: %d', stats.rpc_errors_caught)
         printf('  Raw messages: %d', stats.raw_messages)
+
+        printf('\nTest Completion:')
+        printf('  Service discovery: %s', service_test_done and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  RPC calls: %s', next(rpc_test_done) and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  Targeted pub/sub: %s', next(targeted_pub_done) and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  call_service(): %s', next(service_call_done) and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  Deferred execution: %s', next(defer_test_done) and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  RPC error handling: %s', next(error_test_done) and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  State get_all(): %s', get_all_test_done and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  unsubscribe(): %s', unsubscribe_test_done and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
+        printf('  unprovide(): %s', unprovide_test_done and '\ag[DONE]\ax' or '\ay[PENDING]\ax')
     end
 
     mq.delay(100)
