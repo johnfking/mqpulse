@@ -84,7 +84,7 @@ local node = mqp.setup('my_namespace', {
 
 ### Deferred Execution
 
-You **cannot** call `mq.delay()`, target mobs, or cast spells inside message handlers. Use `node:defer()` instead:
+You **cannot** call `mq.delay()`, cast spells, or perform activites that take time inside message handlers. Use `node:defer()` instead:
 
 ```lua
 node:handle('cast_heal', function(args, caller)
